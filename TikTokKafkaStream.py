@@ -1,9 +1,8 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
+from pyspark.sql.functions import mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
-from udf import string_to_json
-import json
+from utils import subscribe_kafka_topic, get_avg_std, writestream_kafka, writestream_console, string_to_json
 
 if __name__ == "__main__":
 
@@ -72,7 +71,7 @@ if __name__ == "__main__":
         ]))
     ])
 
-
+    #Read raw data from tiktok
     kafka_df = spark.readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", "localhost:9092") \
@@ -80,7 +79,7 @@ if __name__ == "__main__":
         .option("startingOffsets", "earliest") \
         .load()
 
-
+    #convert raw kafka message to a dataframe
     json_parser_udf = udf(string_to_json, StringType())
     json_df = kafka_df.select(json_parser_udf(col("value").cast("string")).alias("value"))
     json_df = json_df.select(from_json(col("value"), schema).alias("value"))
@@ -101,69 +100,18 @@ if __name__ == "__main__":
                                      "value.musicInfos.musicId",
                                      "value.musicInfos.musicName")
 
+    #Create aggregate windowed table with engagement metrics
     filtered_df = filtered_df \
         .withColumn("createTime", to_timestamp(from_unixtime(col("createTime").cast(IntegerType()),"yyyy-MM-dd HH:mm:ss"), "yyyy-MM-dd HH:mm:ss")) \
         .withColumn("engagementCount", expr("commentCount + diggCount + shareCount")) \
         .withColumnRenamed("authorName", "musicianName")
 
-
-    # #Challenge Table
-    # challenge_df = filtered_df \
-    #     .groupBy(col("challengeName"),
-    #              window(col("createTime"), "10 minute")) \
-    #     .agg(sum(col("engagementCount")).alias("TotalEngagement"))
-    # challenge_expr = challenge_df.select("window.start", "window.end", "challengeName", "TotalEngagement")
-
-    # challenge_query = challenge_expr.writeStream \
-    #     .format("console") \
-    #     .outputMode("update")\
-    #     .trigger(processingTime="1 minute") \
-    #     .start()
-
-    # #Author Table
-    # author_df = filtered_df \
-    #     .groupBy(col("userId"),
-    #              window(col("createTime"), "10 minute")) \
-    #     .agg(sum(col("engagementCount")).alias("TotalEngagement"))
-    # author_expr = author_df.select("window.start", "window.end", "userId", "TotalEngagement")
-    #
-    # author_query = author_expr.writeStream \
-    #     .format("console") \
-    #     .outputMode("update")\
-    #     .trigger(processingTime="1 minute") \
-    #     .start()
-    #
-    # #Music Table
-    # music_df = filtered_df \
-    #     .groupBy(col("musicId"),
-    #              window(col("createTime"), "10 minute")) \
-    #     .agg(sum(col("engagementCount")).alias("TotalEngagement"))
-    # music_expr = music_df.select("window.start", "window.end", "musicId", "TotalEngagement")
-    #
-    # music_query = music_expr.writeStream \
-    #     .format("console") \
-    #     .outputMode("update")\
-    #     .trigger(processingTime="1 minute") \
-    #     .start()
-    #
-    # #Musician Table
-    # musician_df = filtered_df \
-    #     .groupBy(col("musicianName"),
-    #              window(col("createTime"), "10 minute")) \
-    #     .agg(sum(col("engagementCount")).alias("TotalEngagement"))
-    # musician_expr = musician_df.select("window.start", "window.end", "musicianName", "TotalEngagement")
-    #
-    # musician_query = musician_expr.writeStream \
-    #     .format("console") \
-    #     .outputMode("update")\
-    #     .trigger(processingTime="1 minute") \
-    #     .start()
-
+    #create word-postId table
     word_id_df = filtered_df \
         .select(col("createTime"),
                 col("id"), explode(array_distinct(expr("split(text, ' ')"))).alias("words"))
 
-
+    #Aggregate word-postId to get wordcount dataframe
     wordcount_df = word_id_df \
         .withWatermark("createTime", "15 minute") \
         .groupBy(col("words"),
@@ -172,40 +120,79 @@ if __name__ == "__main__":
         .withColumn("TotalMentions", size(col("ids")))
 
 
-    test_query = wordcount_df.writeStream \
-        .format("console") \
-        .outputMode("update") \
-        .start()
-
-
-
     #Final Query would look like this but allows users to subscribe to any one keyword value
     lookup_df = wordcount_df \
         .filter(expr("words = 'Holidays'")) \
         .select(col("window"), col("words"), col("TotalMentions"))
 
-    # #1. Add sliding windows and watermark (checked)
-    # #2. Research abnormaly algorithm
-    lookup_query = lookup_df.writeStream \
-        .format("console") \
-        .outputMode("update") \
-        .start()
+    #Prepare wordcount dataframe for Kafka
+    kafka_target_df = wordcount_df.selectExpr("words as key",
+                                              """to_json(named_struct(
+                                              'window', window,
+                                              'ids', ids,
+                                              'TotalMentions', TotalMentions)) as value
+                                              """)
+
+    #Write wordcount dataframe to Kafka
+    # wordcount_query = kafka_target_df.writeStream \
+    #     .format("kafka") \
+    #     .option("kafka.bootstrap.servers", "localhost:9092") \
+    #     .option("topic", "tiktok_wc") \
+    #     .option("checkpointLocation", "chk-point-dir") \
+    #     .outputMode("update") \
+    #     .trigger(processingTime="1 minute") \
+    #     .start()
+
+    #Read wordcount dataframe from Kafka
+    wc_df = subscribe_kafka_topic(spark, "tiktok_wc")
+    wc_json_df = wc_df.select(col("key").cast("string").alias("key"),
+                           col("value").cast("string").alias("value"))
+
+    wc_schema = StructType([
+        StructField("window", StructType([
+            StructField("start", TimestampType()),
+            StructField("end", TimestampType())])),
+        StructField("ids", ArrayType(StringType())),
+        StructField("TotalMentions", IntegerType())])
+
+    wc_json_df = wc_json_df.select(col("key"),
+                                   from_json(col("value"), wc_schema).alias("value"))
+
+    wc_flattened_df = wc_json_df.selectExpr("key as words",
+                                            "value.window.start",
+                                            "value.window.end",
+                                            "value.ids",
+                                            "value.TotalMentions")
+
+    #Calculate average and Standard deviation statistics from wordcount dataframe
+    wc_stats = get_avg_std(wc_flattened_df)
+
+    wc_stats_kafka_df = wc_stats.selectExpr("words as key",
+                                              """to_json(named_struct(
+                                              'avg_mentions', avg_mentions,
+                                              'std_mentions', std_mentions)) as value
+                                              """)
+
+    #wc_query = writestream_console(wc_stats, "update")
+    #wc_query = writestream_kafka(wc_stats_kafka_df, "tiktok_stats", "update", "chk-point-dir-1")
+
+    # Joining WordCount and WordCount Stats Stream
+    #joined_df = wordcount_df.join(wc_stats, "words", "left")
+    # joined_query = writestream_console(joined_df, "complete")
+
+    # lookup_query = lookup_df.writeStream \
+    #     .format("console") \
+    #     .outputMode("complete") \
+    #     .trigger(processingTime="1 minute") \
+    #     .start()
+    # #
 
     spark.streams.awaitAnyTermination()
 
 
-    #
     # #filtered_df.printSchema()
     # filtered_df.show()
-    # value_writer_query = value_df.writeStream \
-    #     .format("console") \
-    #     .queryName("Value Writer") \
-    #     .outputMode("append") \
-    #     .trigger(processingTime="1 minute") \
-    #     .start()
-        # .option("path", "output") \
-        # .option("checkpointLocation", "chk-point-dir") \
+
 
     #
     # logger.info("Listening to Kafka")
-    #value_writer_query.awaitTermination()
