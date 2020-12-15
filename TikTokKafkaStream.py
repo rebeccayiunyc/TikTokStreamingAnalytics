@@ -176,9 +176,27 @@ if __name__ == "__main__":
     #wc_query = writestream_console(wc_stats, "update")
     #wc_query = writestream_kafka(wc_stats_kafka_df, "tiktok_stats", "update", "chk-point-dir-1")
 
+    #Read Wordcount Stats from Kafka
+    stats_df = subscribe_kafka_topic(spark, "tiktok_stats")
+    stats_json_df = stats_df.select(col("key").cast("string").alias("key"),
+                              col("value").cast("string").alias("value"))
+
+    stats_schema = StructType([
+        StructField("avg_mentions", FloatType()),
+        StructField("std_mentions", FloatType())])
+
+    stats_json_df = stats_json_df.select(col("key"),
+                                   from_json(col("value"), stats_schema).alias("value"))
+
+    stats_flattened_df = stats_json_df.selectExpr("key as words",
+                                            "value.avg_mentions",
+                                            "value.std_mentions")
+
+    #stats_flatten_query = writestream_console(stats_flattened_df, "update")
+
     # Joining WordCount and WordCount Stats Stream
-    #joined_df = wordcount_df.join(wc_stats, "words", "left")
-    # joined_query = writestream_console(joined_df, "complete")
+    joined_df = wordcount_df.join(stats_flattened_df, "words", "left")
+    joined_query = writestream_console(joined_df, "append")
 
     # lookup_query = lookup_df.writeStream \
     #     .format("console") \
