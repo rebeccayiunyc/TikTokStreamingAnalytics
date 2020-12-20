@@ -169,12 +169,13 @@ if __name__ == "__main__":
 
     wc_stats_kafka_df = wc_stats.selectExpr("words as key",
                                               """to_json(named_struct(
+                                              'latest_endtime', latest_endtime,
                                               'avg_mentions', avg_mentions,
                                               'std_mentions', std_mentions)) as value
                                               """)
 
     #wc_query = writestream_console(wc_stats, "update")
-    #wc_query = writestream_kafka(wc_stats_kafka_df, "tiktok_stats", "update", "chk-point-dir-1")
+    wc_query = writestream_kafka(wc_stats_kafka_df, "tiktok_stats", "update", "chk-point-dir-1")
 
     #Read Wordcount Stats from Kafka
     stats_df = subscribe_kafka_topic(spark, "tiktok_stats")
@@ -182,20 +183,27 @@ if __name__ == "__main__":
                               col("value").cast("string").alias("value"))
 
     stats_schema = StructType([
+        StructField("latest_endtime", TimestampType()),
         StructField("avg_mentions", FloatType()),
         StructField("std_mentions", FloatType())])
 
     stats_json_df = stats_json_df.select(col("key"),
                                    from_json(col("value"), stats_schema).alias("value"))
 
-    stats_flattened_df = stats_json_df.selectExpr("key as words",
-                                            "value.avg_mentions",
-                                            "value.std_mentions")
+    stats_flattened_df = stats_json_df \
+        .selectExpr("key as word",
+                    "value.latest_endtime",
+                    "value.avg_mentions",
+                    "value.std_mentions") \
+        .withWatermark("latest_endtime", "60 minute")
 
     #stats_flatten_query = writestream_console(stats_flattened_df, "update")
 
-    # Joining WordCount and WordCount Stats Stream
-    joined_df = wordcount_df.join(stats_flattened_df, "words", "left")
+    #Joining WordCount and WordCount Stats Stream
+    join_expr = "words==word" + \
+        " AND latest_endtime == window.end"
+    #        " AND latest_endtime BETWEEN window AND window + interval 60 minute"
+    joined_df = wordcount_df.join(stats_flattened_df, expr(join_expr), "left")
     joined_query = writestream_console(joined_df, "append")
 
     # lookup_query = lookup_df.writeStream \

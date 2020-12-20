@@ -1,4 +1,6 @@
-from pyspark.sql.functions import sum, mean, stddev, col
+from pyspark.sql.functions import sum, mean, stddev, col, max
+from pyspark.sql import Window
+
 import json
 
 def string_to_json(string_value):
@@ -22,9 +24,11 @@ def subscribe_kafka_topic(ss, topic):
     return df
 
 def get_avg_std(df):
+    #w = (Window.partitionBy("words").orderBy("end").rowsBetween(-2, 1))
+    #stats_df = df.withColumn('rolling_average', mean("TotalMentions").over(w))
     stats_df = df \
         .groupBy("words") \
-        .agg(mean(col("TotalMentions")).alias("avg_mentions"), stddev(col("TotalMentions")).alias("std_mentions"))
+        .agg(max(col("end")).alias("latest_endtime"), mean(col("TotalMentions")).alias("avg_mentions"), stddev(col("TotalMentions")).alias("std_mentions"))
     return stats_df
 
 def writestream_console(df, mode):
