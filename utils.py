@@ -1,4 +1,4 @@
-from pyspark.sql.functions import sum, mean, stddev, col, max
+from pyspark.sql.functions import sum, mean, stddev, col, max, year, month, dayofmonth
 from pyspark.sql import Window
 
 import json
@@ -23,6 +23,30 @@ def subscribe_kafka_topic(ss, topic):
     .load()
     return df
 
+def read_static_df(ss, topic):
+    df = ss.read \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", topic) \
+    .option("startingOffsets", "earliest") \
+    .load()
+    return df
+
+def read_static_df(ss, topic):
+    df = ss.read \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", topic) \
+    .option("startingOffsets", "earliest") \
+    .load()
+    return df
+
+def sink_batch_time(df,epoch_id):
+    # Transform and write batchDF
+    df.select(col("year"), col("month"), col("day")) \
+    .write \
+    .parquet('sinkbatchdate')
+
 def get_avg_std(df):
     #w = (Window.partitionBy("words").orderBy("end").rowsBetween(-2, 1))
     #stats_df = df.withColumn('rolling_average', mean("TotalMentions").over(w))
@@ -30,6 +54,16 @@ def get_avg_std(df):
         .groupBy("words") \
         .agg(max(col("end")).alias("latest_endtime"), mean(col("TotalMentions")).alias("avg_mentions"), stddev(col("TotalMentions")).alias("std_mentions"))
     return stats_df
+
+def get_max_date(df):
+    earliest_date = df \
+        .groupBy() \
+        .agg(max(col("start")).alias("earliest_date")) \
+            .withColumn("year", year(col("earliest_date"))) \
+            .withColumn("month", month(col("earliest_date"))) \
+            .withColumn("day", dayofmonth(col("earliest_date"))) \
+            .drop("earliest_date")
+    return earliest_date
 
 def writestream_console(df, mode):
     written_query = df.writeStream \
