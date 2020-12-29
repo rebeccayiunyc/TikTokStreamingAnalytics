@@ -83,4 +83,4 @@ if __name__ == "__main__":
             .withColumn("day", dayofmonth(col("createTime"))) \
             .drop("createTime") \
             .write.partitionBy("year", "month", "day") \
-            .parquet("test_partitioned_data.parquet",mode="append")
+            .parquet("kafka_partitioned_data.parquet",mode="append")

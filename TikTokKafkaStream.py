@@ -1,8 +1,8 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
+from pyspark.sql import SparkSession, Window
+from pyspark.sql.functions import max, year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
-from utils import subscribe_kafka_topic, get_avg_std, get_max_date, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_batch_time
+from utils import subscribe_kafka_topic, get_avg_std, get_early_stream_date, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_batch_time
 
 if __name__ == "__main__":
 
@@ -157,7 +157,7 @@ if __name__ == "__main__":
     wc_json_df = wc_json_df.select(col("key"),
                                    from_json(col("value"), wc_schema).alias("value"))
 
-    wc_flattened_df = wc_json_df.selectExpr("key as words",
+    wc_flattened_df = wc_json_df.selectExpr("key as word",
                                             "value.window.start",
                                             "value.window.end",
                                             "value.ids",
@@ -166,23 +166,48 @@ if __name__ == "__main__":
 
     #writestream_console(wc_flattened_df, "update")
 
-    #Read average and Standard deviation statistics from stats file
-    # early_date = get_max_date(wc_flattened_df)
-    # early_date.writeStream.foreachBatch(sink_batch_time).outputMode("complete").start()
-    #
-    stream_date = spark.read \
-        .format("parquet") \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/sinkbatchdate/part-00000-734467b8-8fa6-4fc7-a193-b6b2b8d041a4-c000.snappy.parquet")
-    stream_month = stream_date.collect()[0]['month']
-    print(stream_month)
-    # print(stream_date['month'])
-    # now_yr = wc_flattened_df.groupBy("words") \
-    #     .agg(max(col("end")).alias("latest_endtime"))
-    #writestream_console(early_date, "update")
+    #Extract Streaming Date
+    # stream_date = get_early_stream_date(wc_flattened_df)
+    # stream_date.writeStream.foreachBatch(sink_batch_time).outputMode("update").start()
 
-    # now_month = month(max(wc_flattened_df.start))
-    # now_day = dayofmonth(max(wc_flattened_df.start))
-    # #
+    # stream_date = spark.read \
+    #     .format("parquet") \
+    #     .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/sinkbatchdate/*")
+    # stream_year = stream_date.collect()[0]['year']
+    # stream_month = stream_date.collect()[0]['month']
+    #stream_day = stream_date.collect()[0]['day']
+
+
+    # Read average and Standard deviation statistics from stats file
+    ## Look for a matching parquet file
+    # stats_df = spark.read \
+    #     .format("parquet") \
+    #     .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_partitioned_data.parquet/year=" + str(stream_year) + '/month=' + str(stream_month-1) + "/*")
+
+    ## Load the entire parquet file
+    stats_df = spark.read \
+        .format("parquet") \
+        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_partitioned_data.parquet/*") \
+
+    stats_window = Window.partitionBy("words")
+    filtered_stats_df = stats_df.withColumn("maxmonth", max("month").over(stats_window)) \
+        .where(col("month") == col("maxmonth")) \
+        .drop("maxmonth")
+
+
+    #Joining WordCount and WordCount Stats Stream
+    #     expr("word=words AND latest_endtime BETWEEN end - interval 30 minutes and end"), "leftOuter") \
+    joined_df = wc_flattened_df.join(
+        filtered_stats_df,
+        expr("word = words"), "leftOuter") \
+        .fillna(0) \
+        .withColumn("Outlier", when(col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions"), 1) \
+                    .otherwise(0))
+    writestream_console(joined_df, "update")
+
+
+    # joined_query = writestream_console(joined_df, "append")
+
     # wc_stats_kafka_df = wc_stats.selectExpr("words as key",
     #                                           """to_json(named_struct(
     #                                           'latest_endtime', latest_endtime,
@@ -212,17 +237,8 @@ if __name__ == "__main__":
     #                 "value.std_mentions") \
     #     .withWatermark("latest_endtime", "15 minute")
     #
-    # stats_flatten_query = writestream_console(stats_flattened_df, "update")
-    #
-    # #Joining WordCount and WordCount Stats Stream
-    # #join_expr = """"word=words AND latest_endtime >= end_time"""
-    # joined_df = wc_flattened_df.join(
-    #     stats_flattened_df,
-    #     expr("word=words AND latest_endtime BETWEEN end - interval 30 minutes and end"), "leftOuter") \
-    #     .withColumn("Outlier", when(col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions"), 1) \
-    #                 .otherwise(0))
-    # joined_query = writestream_console(joined_df, "append")
-    #
+
+
     # # lookup_query = lookup_df.writeStream \
     # #     .format("console") \
     # #     .outputMode("complete") \

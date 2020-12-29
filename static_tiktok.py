@@ -68,6 +68,9 @@ if __name__ == "__main__":
         ]))
     ])
 
+    #write codes to schedule task?
+    #TBD
+
     #Read raw tdata from tiktok daily batch
     raw_df = spark.read \
         .format("parquet") \

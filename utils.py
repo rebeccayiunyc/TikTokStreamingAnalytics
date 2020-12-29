@@ -1,4 +1,4 @@
-from pyspark.sql.functions import sum, mean, stddev, col, max, year, month, dayofmonth
+from pyspark.sql.functions import sum, mean, stddev, col, max, year, month, dayofmonth, min
 from pyspark.sql import Window
 
 import json
@@ -45,7 +45,8 @@ def sink_batch_time(df,epoch_id):
     # Transform and write batchDF
     df.select(col("year"), col("month"), col("day")) \
     .write \
-    .parquet('sinkbatchdate')
+    .mode('overwrite') \
+    .parquet('sinkbatchdate/')
 
 def get_avg_std(df):
     #w = (Window.partitionBy("words").orderBy("end").rowsBetween(-2, 1))
@@ -55,15 +56,15 @@ def get_avg_std(df):
         .agg(max(col("end")).alias("latest_endtime"), mean(col("TotalMentions")).alias("avg_mentions"), stddev(col("TotalMentions")).alias("std_mentions"))
     return stats_df
 
-def get_max_date(df):
-    earliest_date = df \
+def get_early_stream_date(df):
+    early_stream_date = df \
         .groupBy() \
-        .agg(max(col("start")).alias("earliest_date")) \
+        .agg(min(col("start")).alias("earliest_date")) \
             .withColumn("year", year(col("earliest_date"))) \
             .withColumn("month", month(col("earliest_date"))) \
             .withColumn("day", dayofmonth(col("earliest_date"))) \
             .drop("earliest_date")
-    return earliest_date
+    return early_stream_date
 
 def writestream_console(df, mode):
     written_query = df.writeStream \
