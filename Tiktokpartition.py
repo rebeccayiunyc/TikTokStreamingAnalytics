@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
+from pyspark.sql.functions import to_timestamp,
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
 
@@ -77,10 +77,10 @@ if __name__ == "__main__":
         .withColumn("createTime", to_timestamp(from_unixtime(col("itemInfos.createTime").cast(IntegerType()),"yyyy-MM-dd HH:mm:ss"), "yyyy-MM-dd HH:mm:ss"))
 
     #write dataframe by date partition
-    bydate_df = sorted_df \
-            .withColumn("year", year(col("createTime"))) \
-            .withColumn("month", month(col("createTime"))) \
-            .withColumn("day", dayofmonth(col("createTime"))) \
-            .drop("createTime") \
-            .write.partitionBy("year", "month", "day") \
-            .parquet("kafka_partitioned_data.parquet",mode="append")
+    # bydate_df = sorted_df \
+    #         .withColumn("year", year(col("createTime"))) \
+    #         .withColumn("month", month(col("createTime"))) \
+    #         .withColumn("day", dayofmonth(col("createTime"))) \
+    #         .drop("createTime") \
+    #         .write.partitionBy("year", "month", "day") \
+    #         .parquet("kafka_partitioned_data.parquet",mode="append")

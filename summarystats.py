@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # Read raw tdata from tiktok daily batch
     raw_df = spark.read \
         .format("parquet") \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/wc_partition.parquet/year=2015/")
+        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/wc_partition.parquet/")
 
     #for monthly stats with specificed folder
     # stats_df = raw_df \
@@ -30,11 +30,9 @@ if __name__ == "__main__":
     #     .orderBy(col("avg_mentions").desc())
 
     stats_df = raw_df \
-        .groupBy("words", "month") \
+        .groupBy("words", "year", "month") \
         .agg(max(col("date")).alias("latest_occur_date"), mean(col("TotalMentions") / stream_window_num).alias("avg_mentions"), stddev(col("TotalMentions") / stream_window_num).alias("std_mentions")) \
         .fillna(0) \
-        .withColumn("year", year(col("latest_occur_date"))) \
-        .withColumn("month", month(col("latest_occur_date"))) \
         .orderBy(col("avg_mentions").desc())
 
     # stats_write_df = stats_df \
@@ -44,6 +42,6 @@ if __name__ == "__main__":
     #         .write.partitionBy("year", "month") \
     #         .parquet("stats_partitioned_data.parquet",mode="append")
 
-    stats_write_df = stats_df \
-            .write.partitionBy("year", "month") \
-            .parquet("stats_partitioned_data.parquet",mode="append")
+    # stats_write_df = stats_df \
+    #         .write.partitionBy("year", "month") \
+    #         .parquet("stats_partitioned_data.parquet",mode="append")
