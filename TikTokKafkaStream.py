@@ -2,7 +2,7 @@ from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import max, year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
-from utils import subscribe_kafka_topic, get_avg_std, get_early_stream_date, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_batch_time
+from utils import subscribe_kafka_topic, get_avg_std, get_early_stream_date, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_word_count
 
 if __name__ == "__main__":
 
@@ -118,6 +118,7 @@ if __name__ == "__main__":
 
     #write codes to sink streaming data to S3/Cassandra
     writestream_console(wordcount_df, "update")
+    wordcount_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
 
     # #Final Query would look like this but allows users to subscribe to any one keyword value
     # lookup_df = wordcount_df \
@@ -183,9 +184,9 @@ if __name__ == "__main__":
     #
     #Read stats from historic wordcount tables
     # Look for a matching parquet file
-    stats_df = spark.read \
-        .format("parquet") \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_partitioned_data.parquet/year=" + str(stream_year) + '/month=' + str(stream_month-1) + "/*")
+    # stats_df = spark.read \
+    #     .format("parquet") \
+    #     .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_partitioned_data.parquet/year=" + str(stream_year) + '/month=' + str(stream_month-1) + "/*")
 
     # ## Load the entire parquet file
     # stats_df = spark.read \

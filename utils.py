@@ -41,12 +41,11 @@ def read_static_df(ss, topic):
     .load()
     return df
 
-def sink_batch_time(df,epoch_id):
+def sink_word_count(df,epoch_id):
     # Transform and write batchDF
-    df.select(col("year"), col("month"), col("day")) \
-    .write \
-    .mode('overwrite') \
-    .parquet('sinkbatchdate/')
+    df.write \
+    .mode('append') \
+    .parquet('sinkwordcount/')
 
 def get_avg_std(df):
     #w = (Window.partitionBy("words").orderBy("end").rowsBetween(-2, 1))
