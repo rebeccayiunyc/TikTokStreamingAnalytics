@@ -1,5 +1,6 @@
 from pyspark.sql.functions import sum, mean, stddev, col, max, year, month, dayofmonth, min
 from pyspark.sql import Window
+import datetime
 
 import json
 
@@ -43,9 +44,13 @@ def read_static_df(ss, topic):
 
 def sink_word_count(df,epoch_id):
     # Transform and write batchDF
+    now = datetime.datetime.now()
+    now_date = now.strftime("%Y-%m-%d")
+
     df.write \
     .mode('append') \
-    .parquet('sinkwordcount/')
+    .format("parquet") \
+    .save('./wordcountsink/' + now_date +'/')
 
 def get_avg_std(df):
     #w = (Window.partitionBy("words").orderBy("end").rowsBetween(-2, 1))

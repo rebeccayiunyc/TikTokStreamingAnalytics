@@ -1,3 +1,4 @@
+import datetime
 from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import max, year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
@@ -103,8 +104,18 @@ if __name__ == "__main__":
         .withColumn("engagementCount", expr("commentCount + diggCount + shareCount")) \
         .withColumnRenamed("authorName", "musicianName")
 
-    #Write code to sink this to S3 for daily batch processing
+    #Write code to sink this to S3, and push to database/redshift end of day
+    now = datetime.datetime.now()
+    now_date = now.strftime("%Y-%m-%d")
+    # print(now_date)
+    # time_of_the_day = now.strftime("%H-%M-%S")
 
+    # # Save the aggregated data to S3
+    # if len(groupedRDD.head(1)) != 0:
+    #     groupedRDD.write \
+    #         .format("com.databricks.spark.csv") \
+    #         .mode("append") \
+    #         .save("s3n://anshu-insight/aggregatedData_" + now_date + "/")
 
     #create wordcount table
     wordcount_df = filtered_df \
@@ -114,18 +125,22 @@ if __name__ == "__main__":
         .groupBy(col("words"),
                  window(col("timestamp"), "15 minute", "15 minute")) \
         .agg(collect_list(col("id")).alias("ids")) \
-        .withColumn("TotalMentions", size(col("ids")))
+        .withColumn("TotalMentions", size(col("ids"))) \
+        .withColumn("year", year(col("window.end"))) \
+        .withColumn("month", month(col("window.end"))) \
+        .withColumn("day", dayofmonth(col("window.end")))
 
-    #write codes to sink streaming data to S3/Cassandra
-    writestream_console(wordcount_df, "update")
-    wordcount_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
+    # #write codes to sink streaming data to S3
+    # writestream_console(wordcount_df, "update")
+    # #wordcount_df.writeStream.foreachBatch(sink_word_count).option("path", 'wordcountsink/' + now_date + '/').outputMode("update").start()
+    # wordcount_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
 
     # #Final Query would look like this but allows users to subscribe to any one keyword value
     # lookup_df = wordcount_df \
     #     .filter(expr("words = 'Holidays'")) \
     #     .select(col("window"), col("words"), col("TotalMentions"))
     #
-    # #Prepare wordcount dataframe for Kafka
+    #Prepare wordcount dataframe for Kafka
     # kafka_target_df = wordcount_df.selectExpr("words as key",
     #                                           """to_json(named_struct(
     #                                           'window', window,
@@ -183,16 +198,15 @@ if __name__ == "__main__":
     #
     #
     #Read stats from historic wordcount tables
-    # Look for a matching parquet file
     # stats_df = spark.read \
     #     .format("parquet") \
     #     .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_partitioned_data.parquet/year=" + str(stream_year) + '/month=' + str(stream_month-1) + "/*")
 
     # ## Load the entire parquet file
-    # stats_df = spark.read \
-    #     .format("parquet") \
-    #     .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_partitioned_data.parquet/") \
-    #
+    stats_df = spark.read \
+        .format("parquet") \
+        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_df/" + now_date + '/') \
+
     # # stats_df.show()
     # # stats_window = Window.partitionBy("words")
     # # filtered_stats_df = stats_df.withColumn("maxmonth", max("month").over(stats_window)) \
@@ -202,13 +216,12 @@ if __name__ == "__main__":
     #
     # #Joining WordCount and WordCount Stats Stream
     # #    expr("word=words AND latest_endtime BETWEEN end - interval 30 minutes and end"), "leftOuter") \
-    # joined_df = wc_flattened_df.join(
-    #     stats_df,
-    #     expr("word = words AND end_year = year AND end_month > month"), "leftOuter") \
-    #     .fillna(0) \
-    #     .withColumn("Outlier", when(col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions"), 1) \
-    #                 .otherwise(0))
-    # writestream_console(joined_df, "update")
+    joined_df = wordcount_df.join(
+        stats_df,  .words == stats_df.words, "leftOuter") \
+        .fillna(0) \
+        .withColumn("Outlier", when(col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions"), 1) \
+                    .otherwise(0))
+    writestream_console(joined_df, "update")
     #
     #
     # # joined_query = writestream_console(joined_df, "append")
