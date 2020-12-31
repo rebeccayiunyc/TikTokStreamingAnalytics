@@ -3,7 +3,7 @@ from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import max, year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
-from utils import subscribe_kafka_topic, get_avg_std, get_early_stream_date, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_word_count
+from utils import subscribe_kafka_topic, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_word_count, sink_streaming
 
 if __name__ == "__main__":
 
@@ -12,11 +12,14 @@ if __name__ == "__main__":
         .appName("TikTok Streaming Demo") \
         .master("local[3]") \
         .config("spark.streaming.stopGracefullyOnShutdown", "true") \
-        .config("spark.sql.streaming.schemaInference", "true") \
         .getOrCreate()
 
     # logger = Log4j(spark)
-    #
+
+    now = datetime.datetime.now()
+    now_date = now.strftime("%Y-%m-%d")
+    # time_of_the_day = now.strftime("%H-%M-%S")
+
     schema = StructType([
         StructField("authorInfos", StructType([
             StructField("covers", ArrayType(StringType())),
@@ -81,44 +84,24 @@ if __name__ == "__main__":
         .option("startingOffsets", "earliest") \
         .load()
 
-    # #convert raw kafka message to a dataframe
+    # convert raw kafka message to a dataframe
     json_parser_udf = udf(string_to_json, StringType())
     json_df = kafka_df.select(json_parser_udf(col("value").cast("string")).alias("value"))
     json_df = json_df.select(from_json(col("value"), schema).alias("value"))
+    #json_df.writeStream.foreachBatch(sink_streaming).outputMode("update").start()
 
-    filtered_df = json_df.selectExpr("value.authorInfos.uniqueId",
-                                      "value.authorInfos.userId",
-                                      "value.challengeInfoList.challengeId",
-                                      "value.challengeInfoList.challengeName",
-                                      "value.challengeInfoList.isCommerce",
-                                      "value.itemInfos.commentCount",
-                                      "value.itemInfos.diggCount",
-                                     "value.itemInfos.id",
-                                     "value.itemInfos.isActivityItem",
-                                     "value.itemInfos.shareCount",
-                                     "value.itemInfos.text",
-                                     "value.musicInfos.authorName",
-                                     "value.musicInfos.musicId",
-                                     "value.musicInfos.musicName",
-                                     "value.time_stamp") \
-        .withColumn("engagementCount", expr("commentCount + diggCount + shareCount")) \
-        .withColumnRenamed("authorName", "musicianName")
-
-    #Write code to sink this to S3, and push to database/redshift end of day
-    now = datetime.datetime.now()
-    now_date = now.strftime("%Y-%m-%d")
-    # print(now_date)
-    # time_of_the_day = now.strftime("%H-%M-%S")
-
-    # # Save the aggregated data to S3
-    # if len(groupedRDD.head(1)) != 0:
-    #     groupedRDD.write \
-    #         .format("com.databricks.spark.csv") \
-    #         .mode("append") \
-    #         .save("s3n://anshu-insight/aggregatedData_" + now_date + "/")
-
+# ##--marker##
+#     # Save the aggregated data to S3
+#     # if len(groupedRDD.head(1)) != 0:
+#     #     groupedRDD.write \
+#     #         .format("com.databricks.spark.csv") \
+#     #         .mode("append") \
+#     #         .save("s3n://anshu-insight/aggregatedData_" + now_date + "/")
+#
     #create wordcount table
-    wordcount_df = filtered_df \
+    wordcount_df = json_df.selectExpr("value.itemInfos.id",
+                                     "value.itemInfos.text",
+                                     "value.time_stamp") \
         .withColumn("timestamp", to_timestamp(from_unixtime(col("time_stamp").cast(IntegerType()),"yyyy-MM-dd HH:mm:ss"), "yyyy-MM-dd HH:mm:ss")) \
         .select(col("timestamp"), col("id"), explode(array_distinct(expr("split(text, ' ')"))).alias("words")) \
         .withWatermark("timestamp", "15 minute") \
@@ -128,142 +111,107 @@ if __name__ == "__main__":
         .withColumn("TotalMentions", size(col("ids"))) \
         .withColumn("year", year(col("window.end"))) \
         .withColumn("month", month(col("window.end"))) \
-        .withColumn("day", dayofmonth(col("window.end")))
-
-    # #write codes to sink streaming data to S3
-    # writestream_console(wordcount_df, "update")
-    # #wordcount_df.writeStream.foreachBatch(sink_word_count).option("path", 'wordcountsink/' + now_date + '/').outputMode("update").start()
-    # wordcount_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
-
-    # #Final Query would look like this but allows users to subscribe to any one keyword value
-    # lookup_df = wordcount_df \
-    #     .filter(expr("words = 'Holidays'")) \
-    #     .select(col("window"), col("words"), col("TotalMentions"))
-    #
-    #Prepare wordcount dataframe for Kafka
-    # kafka_target_df = wordcount_df.selectExpr("words as key",
-    #                                           """to_json(named_struct(
-    #                                           'window', window,
-    #                                           'ids', ids,
-    #                                           'TotalMentions', TotalMentions)) as value
-    #                                           """)
-
-    # #Write wordcount dataframe to Kafka
-    # wordcount_query = kafka_target_df.writeStream \
-    #     .format("kafka") \
-    #     .option("kafka.bootstrap.servers", "localhost:9092") \
-    #     .option("topic", "tiktok_wc") \
-    #     .option("checkpointLocation", "chk-point-dir") \
-    #     .outputMode("update") \
-    #     .trigger(processingTime="1 minute") \
-    #     .start()
-    #
-    #Read wordcount dataframe from Kafka
-    # wc_df = subscribe_kafka_topic(spark, "tiktok_wc")
-    # wc_json_df = wc_df.select(col("key").cast("string").alias("key"),
-    #                        col("value").cast("string").alias("value"))
-    #
-    # wc_schema = StructType([
-    #     StructField("window", StructType([
-    #         StructField("start", TimestampType()),
-    #         StructField("end", TimestampType())])),
-    #     StructField("ids", ArrayType(StringType())),
-    #     StructField("TotalMentions", IntegerType())])
-    #
-    # wc_json_df = wc_json_df.select(col("key"),
-    #                                from_json(col("value"), wc_schema).alias("value"))
-    #
-    # wc_flattened_df = wc_json_df \
-    #     .selectExpr("key as word",
-    #     "value.window.start",
-    #     "value.window.end",
-    #     "value.ids",
-    #     "value.TotalMentions") \
-    #     .withColumn("end_year", year(col("end"))) \
-    #     .withColumn("end_month", month(col("end"))) \
-    #     .withWatermark("end", "15 minute")
-    #
-    # #writestream_console(wc_flattened_df, "update")
-    #
-    # #Extract Streaming Date
-    # # stream_date = get_early_stream_date(wc_flattened_df)
-    # # stream_date.writeStream.foreachBatch(sink_batch_time).outputMode("update").start()
-    #
-    # # stream_date = spark.read \
-    # #     .format("parquet") \
-    # #     .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/sinkbatchdate/*")
-    # # stream_year = stream_date.collect()[0]['year']
-    # # stream_month = stream_date.collect()[0]['month']
-    # #stream_day = stream_date.collect()[0]['day']
-    #
-    #
-    #Read stats from historic wordcount tables
-    # stats_df = spark.read \
-    #     .format("parquet") \
-    #     .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_partitioned_data.parquet/year=" + str(stream_year) + '/month=' + str(stream_month-1) + "/*")
-
-    # ## Load the entire parquet file
+        .withColumn("day", dayofmonth(col("window.end"))) \
+        .drop("id", "text", "time_stamp")
+#
+    #Load historic rolling statistic dataframe
     stats_df = spark.read \
         .format("parquet") \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/stats_df/" + now_date + '/') \
+        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/wc_stats_df/*")
 
-    # # stats_df.show()
-    # # stats_window = Window.partitionBy("words")
-    # # filtered_stats_df = stats_df.withColumn("maxmonth", max("month").over(stats_window)) \
-    # #     .where(col("month") == col("maxmonth")) \
-    # #     .drop("maxmonth")
-    #
-    #
-    # #Joining WordCount and WordCount Stats Stream
-    # #    expr("word=words AND latest_endtime BETWEEN end - interval 30 minutes and end"), "leftOuter") \
-    joined_df = wordcount_df.join(
-        stats_df,  .words == stats_df.words, "leftOuter") \
+    #Join WordCount stream and historic rolling Stats df
+    #Need to Refine Join expression to make sure it's joining data from the previous date. Also may need to loosen outlier definition
+    joined_df = wordcount_df.join(stats_df,
+        wordcount_df.words == stats_df.words, "leftOuter") \
         .fillna(0) \
         .withColumn("Outlier", when(col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions"), 1) \
                     .otherwise(0))
     writestream_console(joined_df, "update")
-    #
-    #
-    # # joined_query = writestream_console(joined_df, "append")
-    #
-    # # wc_stats_kafka_df = wc_stats.selectExpr("words as key",
-    # #                                           """to_json(named_struct(
-    # #                                           'latest_endtime', latest_endtime,
-    # #                                           'avg_mentions', avg_mentions,
-    # #                                           'std_mentions', std_mentions)) as value
-    # #                                           """)
-    # #
-    # # #wc_query = writestream_kafka(wc_stats_kafka_df, "tiktok_stats", "update", "chk-point-dir-1")
-    # #
-    # # #Read Wordcount Stats from Kafka
-    # # stats_df = subscribe_kafka_topic(spark, "tiktok_stats")
-    # # stats_json_df = stats_df.select(col("key").cast("string").alias("key"),
-    # #                           col("value").cast("string").alias("value"))
-    # #
-    # # stats_schema = StructType([
-    # #     StructField("latest_endtime", TimestampType()),
-    # #     StructField("avg_mentions", FloatType()),
-    # #     StructField("std_mentions", FloatType())])
-    # #
-    # # stats_json_df = stats_json_df.select(col("key"),
-    # #                                from_json(col("value"), stats_schema).alias("value"))
-    # #
-    # # stats_flattened_df = stats_json_df \
-    # #     .selectExpr("key as word",
-    # #                 "value.latest_endtime",
-    # #                 "value.avg_mentions",
-    # #                 "value.std_mentions") \
-    # #     .withWatermark("latest_endtime", "15 minute")
-    # #
-    #
-    #
-    # # # lookup_query = lookup_df.writeStream \
-    # # #     .format("console") \
-    # # #     .outputMode("complete") \
-    # # #     .trigger(processingTime="1 minute") \
-    # # #     .start()
-    # # # #
+
+    # #write codes to sink streaming wordcount to S3/Redshift?
+    # joined_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
+
+
+    # #Final Query would look like this but allows users to subscribe to any one keyword value
+    #Need to deal with cases where word is not found and returns the value of 0
+    # lookup_df = joined_df \
+    #     .filter(expr("words = 'Holidays'")) \
+    #     .select(col("window"), col("words"), col("TotalMentions"))
 
     spark.streams.awaitAnyTermination()
-    #
-    # logger.info("Listening to Kafka")
+#
+#     ##------------------------------------- Back-up Content----------------------------------------
+#     #Prepare wordcount dataframe for Kafka
+#     # kafka_target_df = wordcount_df.selectExpr("words as key",
+#     #                                           """to_json(named_struct(
+#     #                                           'window', window,
+#     #                                           'ids', ids,
+#     #                                           'TotalMentions', TotalMentions)) as value
+#     #                                           """)
+#
+#     # #Write wordcount dataframe to Kafka
+#     # wordcount_query = kafka_target_df.writeStream \
+#     #     .format("kafka") \
+#     #     .option("kafka.bootstrap.servers", "localhost:9092") \
+#     #     .option("topic", "tiktok_wc") \
+#     #     .option("checkpointLocation", "chk-point-dir") \
+#     #     .outputMode("update") \
+#     #     .trigger(processingTime="1 minute") \
+#     #     .start()
+#     #
+#     #Read wordcount dataframe from Kafka
+#     # wc_df = subscribe_kafka_topic(spark, "tiktok_wc")
+#     # wc_json_df = wc_df.select(col("key").cast("string").alias("key"),
+#     #                        col("value").cast("string").alias("value"))
+#     #
+#     # wc_schema = StructType([
+#     #     StructField("window", StructType([
+#     #         StructField("start", TimestampType()),
+#     #         StructField("end", TimestampType())])),
+#     #     StructField("ids", ArrayType(StringType())),
+#     #     StructField("TotalMentions", IntegerType())])
+#     #
+#     # wc_json_df = wc_json_df.select(col("key"),
+#     #                                from_json(col("value"), wc_schema).alias("value"))
+#     #
+#     # wc_flattened_df = wc_json_df \
+#     #     .selectExpr("key as word",
+#     #     "value.window.start",
+#     #     "value.window.end",
+#     #     "value.ids",
+#     #     "value.TotalMentions") \
+#     #     .withColumn("end_year", year(col("end"))) \
+#     #     .withColumn("end_month", month(col("end"))) \
+#     #     .withWatermark("end", "15 minute")
+#     #
+#     # wc_stats_kafka_df = wc_stats.selectExpr("words as key",
+#     #                                           """to_json(named_struct(
+#     #                                           'latest_endtime', latest_endtime,
+#     #                                           'avg_mentions', avg_mentions,
+#     #                                           'std_mentions', std_mentions)) as value
+#     #                                           """)
+#     #
+#     # #wc_query = writestream_kafka(wc_stats_kafka_df, "tiktok_stats", "update", "chk-point-dir-1")
+#     #
+#     # #Read Wordcount Stats from Kafka
+#     # stats_df = subscribe_kafka_topic(spark, "tiktok_stats")
+#     # stats_json_df = stats_df.select(col("key").cast("string").alias("key"),
+#     #                           col("value").cast("string").alias("value"))
+#     #
+#     # stats_schema = StructType([
+#     #     StructField("latest_endtime", TimestampType()),
+#     #     StructField("avg_mentions", FloatType()),
+#     #     StructField("std_mentions", FloatType())])
+#     #
+#     # stats_json_df = stats_json_df.select(col("key"),
+#     #                                from_json(col("value"), stats_schema).alias("value"))
+#     #
+#     # stats_flattened_df = stats_json_df \
+#     #     .selectExpr("key as word",
+#     #                 "value.latest_endtime",
+#     #                 "value.avg_mentions",
+#     #                 "value.std_mentions") \
+#     #     .withWatermark("latest_endtime", "15 minute")
+#     #
+##    expr("word=words AND latest_endtime BETWEEN end - interval 30 minutes and end"), "leftOuter") \
+#     # logger.info("Listening to Kafka")

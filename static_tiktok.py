@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import year, month, dayofmonth, date_trunc, desc, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
+from pyspark.sql.functions import to_date, concat_ws, year, month, dayofmonth, date_trunc, desc, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
 
@@ -13,94 +13,50 @@ if __name__ == "__main__":
 
     #logger = Log4j(spark)
 
-    schema = StructType([
-        StructField("authorInfos", StructType([
-            StructField("covers", ArrayType(StringType())),
-            StructField("coversLarger", ArrayType(StringType())),
-            StructField("coversMedium", ArrayType(StringType())),
-            StructField("nickName", StringType()),
-            StructField("secUid", StringType()),
-            StructField("signature", StringType()),
-            StructField("uniqueId", StringType()),
-            StructField("userId", StringType())
-            ])),
-        StructField("challengeInfoList", ArrayType(StructType([
-            StructField("challengeId", StringType()),
-            StructField("challengeName", StringType()),
-            StructField("covers", ArrayType(StringType())),
-            StructField("coversLarger", ArrayType(StringType())),
-            StructField("coversMedium", ArrayType(StringType())),
-            StructField("isCommerce", BooleanType()),
-            StructField("text", StringType())
-        ]))),
-        StructField("itemInfos", StructType([
-            StructField("authorId", StringType()),
-            StructField("commentCount", LongType()),
-            StructField("covers", ArrayType(StringType())),
-            StructField("coversDynamic", ArrayType(StringType())),
-            StructField("coversOrigin", ArrayType(StringType())),
-            StructField("createTime", StringType()),
-            StructField("diggCount", LongType()),
-            StructField("id", StringType()),
-            StructField("isActivityItem", BooleanType()),
-            StructField("musicId", StringType()),
-            StructField("shareCount", LongType()),
-            StructField("text", StringType()),
-            StructField("video", StructType([
-                StructField("url", ArrayType(StringType())),
-                StructField("videoMeta", StructType([
-                    StructField("Duration", LongType()),
-                    StructField("height", LongType()),
-                    StructField("ratio", LongType()),
-                    StructField("width", LongType())
-                ]))
-            ]))
-        ])),
-        StructField("musicInfos", StructType([
-            StructField("authorName", StringType()),
-            StructField("covers", ArrayType(StringType())),
-            StructField("coversLarger", ArrayType(StringType())),
-            StructField("coversMedium", ArrayType(StringType())),
-            StructField("musicId", StringType()),
-            StructField("musicName", StringType()),
-            StructField("original", StringType()),
-            StructField("playUrl", ArrayType(StringType()))
-        ]))
-    ])
-
-    #write codes to schedule task?
-    #TBD
-
-    #Read raw tdata from tiktok daily batch
-    raw_df = spark.read \
+    #Read raw streaming data from S3
+    json_df = spark.read \
         .format("parquet") \
-        .schema(schema) \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/test_partitioned_data.parquet/year=2015/")
+        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/rawkafkajson/2020-12-31")
 
-
-    #Parse out raw table
-    filtered_df = raw_df.selectExpr("authorInfos.uniqueId",
-                                      "authorInfos.userId",
-                                      "challengeInfoList.challengeId",
-                                      "challengeInfoList.challengeName",
-                                      "challengeInfoList.isCommerce",
-                                      "itemInfos.commentCount",
-                                      "itemInfos.createTime",
-                                      "itemInfos.diggCount",
-                                     "itemInfos.id",
-                                     "itemInfos.isActivityItem",
-                                     "itemInfos.shareCount",
-                                     "itemInfos.text",
-                                     "musicInfos.authorName",
-                                     "musicInfos.musicId",
-                                     "musicInfos.musicName")
-
-    #Create engagement metrics
-    filtered_df = filtered_df \
-        .withColumn("createTime", to_timestamp(from_unixtime(col("createTime").cast(IntegerType()),"yyyy-MM-dd HH:mm:ss"), "yyyy-MM-dd HH:mm:ss")) \
-        .withColumn("date", date_trunc("day", "createTime")) \
+    filtered_df = json_df \
+        .selectExpr("value.authorInfos.uniqueId",
+                    "value.authorInfos.userId",
+                    "value.challengeInfoList.challengeId",
+                    "value.challengeInfoList.challengeName",
+                    "value.challengeInfoList.isCommerce",
+                    "value.itemInfos.commentCount",
+                    "value.itemInfos.diggCount",
+                    "value.itemInfos.id",
+                    "value.itemInfos.isActivityItem",
+                    "value.itemInfos.shareCount",
+                    "value.itemInfos.text",
+                    "value.musicInfos.authorName",
+                    "value.musicInfos.musicId",
+                    "value.musicInfos.musicName",
+                    "value.time_stamp") \
         .withColumn("engagementCount", expr("commentCount + diggCount + shareCount")) \
+        .withColumn("challengeId", concat_ws('', 'challengeId')) \
+        .withColumn("challengeName", concat_ws('', 'challengeName')) \
+        .withColumn("isCommerce", concat_ws('', 'isCommerce').cast("boolean")) \
+        .withColumn("date", to_date(to_timestamp(from_unixtime(col("time_stamp").cast(IntegerType()), "yyyy-MM-dd HH:mm:ss"),
+                                          "yyyy-MM-dd HH:mm:ss"))) \
         .withColumnRenamed("authorName", "musicianName")
+    #Write codes to push to database
+
+    #create wordcount table, Read data from filtered_df database
+    wordcount_df = filtered_df \
+        .select(col("date"), col("id"), explode(array_distinct(expr("split(text, ' ')"))).alias("words")) \
+        .groupBy(col("date"), col("words")) \
+        .agg(collect_list(col("id")).alias("ids")) \
+        .withColumn("TotalMentions", size(col("ids"))) \
+        .drop("ids")
+
+    #Save to wordcount database
+    # wordcount_df \
+    #     .write \
+    #     .format("parquet") \
+    #     .mode("append") \
+    #     .save("./wordcount/")
 
     #Challenge Table
     challenge_df = filtered_df \
@@ -120,23 +76,30 @@ if __name__ == "__main__":
         .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
         .orderBy(col("TotalEngagement").desc())
 
-    # #Musician Table
+    #Musician Table
     musician_df = filtered_df \
         .groupBy(col("date"), col("musicianName")) \
         .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
         .orderBy(col("TotalEngagement").desc())
+    #Write code to push all tables to database/redshift end of day
 
-    #create wordcount table
-    wordcount_df = filtered_df \
-        .select(col("date"), col("id"), explode(array_distinct(expr("split(text, ' ')"))).alias("words")) \
-        .groupBy(col("date"), col("words")) \
-        .agg(collect_list(col("id")).alias("ids")) \
-        .withColumn("TotalMentions", size(col("ids")))
-
-    #Save Wordcount table to parquet
-    wordcount_df \
-        .withColumn("year", year(col("date"))) \
-        .withColumn("month", month(col("date"))) \
-        .withColumn("day", dayofmonth(col("date"))) \
-        .write.partitionBy("year", "month", "day") \
-        .parquet("wc_partition.parquet",mode="append")
+    ##---------------------- backup Content----------------------------------------
+    # #Parse out raw table
+    # filtered_df = json_df.selectExpr("authorInfos.uniqueId",
+    #                                   "authorInfos.userId",
+    #                                   "challengeInfoList.challengeId",
+    #                                   "challengeInfoList.challengeName",
+    #                                   "challengeInfoList.isCommerce",
+    #                                   "itemInfos.commentCount",
+    #                                   "itemInfos.createTime",
+    #                                   "itemInfos.diggCount",
+    #                                  "itemInfos.id",
+    #                                  "itemInfos.isActivityItem",
+    #                                  "itemInfos.shareCount",
+    #                                  "itemInfos.text",
+    #                                  "musicInfos.authorName",
+    #                                  "musicInfos.musicId",
+    #                                  "musicInfos.musicName") \
+    #                 .withColumn("engagementCount", expr("commentCount + diggCount + shareCount")) \
+    #                 .withColumnRenamed("authorName", "musicianName") \
+    #                 .show()

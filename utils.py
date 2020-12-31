@@ -42,8 +42,17 @@ def read_static_df(ss, topic):
     .load()
     return df
 
+def sink_streaming(df,epoch_id):
+    now = datetime.datetime.now()
+    now_date = now.strftime("%Y-%m-%d")
+
+    df.write \
+    .mode("append") \
+    .format("parquet") \
+    .save("./rawkafkajson/" + now_date +"/")
+
+
 def sink_word_count(df,epoch_id):
-    # Transform and write batchDF
     now = datetime.datetime.now()
     now_date = now.strftime("%Y-%m-%d")
 
@@ -93,6 +102,3 @@ def writestream_kafka(df, topic, mode, checkpoint_dir):
 #     .format("console") \
 #     .outputMode("update") \
 #     .start()
-
-
-# stats_expr = stats_df.select("words", "sum(TotalMentions)")
