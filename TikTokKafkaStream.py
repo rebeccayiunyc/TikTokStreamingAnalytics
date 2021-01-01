@@ -1,6 +1,6 @@
 import datetime
 from pyspark.sql import SparkSession, Window
-from pyspark.sql.functions import max, year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
+from pyspark.sql.functions import row_number, max, year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
 from utils import subscribe_kafka_topic, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_word_count, sink_streaming
@@ -119,12 +119,16 @@ if __name__ == "__main__":
         .format("parquet") \
         .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/wc_stats_df/*")
 
-    #Join WordCount stream and historic rolling Stats df
-    #Need to Refine Join expression to make sure it's joining data from the previous date. Also may need to loosen outlier definition
-    joined_df = wordcount_df.join(stats_df,
-        wordcount_df.words == stats_df.words, "leftOuter") \
+    recent_stats_window = Window.partitionBy("words").orderBy("date")
+    last_stats_record = stats_df.withColumn("row_num", row_number().over(recent_stats_window)) \
+            .filter(col("row_num") ==1) \
+        .drop("row_num")
+
+    #Join WordCount stream and historic rolling Stats dfe.
+    joined_df = wordcount_df.join(last_stats_record,
+                                  (wordcount_df.words == stats_df.words), "leftOuter") \
         .fillna(0) \
-        .withColumn("Outlier", when(col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions"), 1) \
+        .withColumn("Outlier", when((col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions")) & (col("avg_mentions") >= 1), 1) \
                     .otherwise(0))
     writestream_console(joined_df, "update")
 
