@@ -1,13 +1,15 @@
 import datetime
 from pyspark.sql import SparkSession, Window
-from pyspark.sql.functions import sum, mean, stddev, col, max,min, year, month, dayofmonth
+from pyspark.sql.functions import mean, stddev, col
 
 if __name__ == "__main__":
 
     spark = SparkSession \
         .builder \
-        .appName("Rolling Stats test") \
+        .appName("Rolling Stats") \
         .master("local[3]") \
+        .config('spark.driver.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
+        .config('spark.executor.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
         .getOrCreate()
 
     #Write codes to schedule the following script at 00:00:00 on every new date
@@ -16,8 +18,10 @@ if __name__ == "__main__":
 
     # Read data from wordcount database
     raw_df = spark.read \
-        .format("parquet") \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/wordcount/")
+        .format("jdbc") \
+        .option("url", "jdbc:postgresql://localhost/tiktok") \
+        .option("dbtable", "wordcount") \
+        .load()
 
     #Compute weekly windowed statistic by word
     stats_window = Window.partitionBy("words").orderBy("date").rowsBetween(-6, 0)
@@ -30,27 +34,9 @@ if __name__ == "__main__":
         .fillna(0)
 
     #save this to weekly statistic database
-    now = datetime.datetime.now()
-    now_date = now.strftime("%Y-%m-%d")
-    rolling_stats \
-        .write \
-        .format("parquet") \
-        .mode("overwrite") \
-        .save('./wc_stats_df/' + now_date + '/')
-
-##------------------ BACKUP content----------------------------
-
-    # wordcount_df = json_df.selectExpr("value.itemInfos.id",
-    #                                  "value.itemInfos.text",
-    #                                  "value.time_stamp") \
-    #     .withColumn("timestamp", to_timestamp(from_unixtime(col("time_stamp").cast(IntegerType()),"yyyy-MM-dd HH:mm:ss"), "yyyy-MM-dd HH:mm:ss")) \
-    #     .select(col("timestamp"), col("id"), explode(array_distinct(expr("split(text, ' ')"))).alias("words")) \
-    #     .withWatermark("timestamp", "15 minute") \
-    #     .groupBy(col("words"),
-    #              window(col("timestamp"), "15 minute", "15 minute")) \
-    #     .agg(collect_list(col("id")).alias("ids")) \
-    #     .withColumn("TotalMentions", size(col("ids"))) \
-    #     .withColumn("year", year(col("window.end"))) \
-    #     .withColumn("month", month(col("window.end"))) \
-    #     .withColumn("day", dayofmonth(col("window.end"))) \
-    #     .drop("id", "text", "time_stamp")
+    # now = datetime.datetime.now()
+    # now_date = now.strftime("%Y-%m-%d")
+    rolling_stats.write.format("jdbc").mode("append") \
+    .option("url", "jdbc:postgresql://localhost/tiktok") \
+    .option("dbtable", "wc_stats") \
+    .save()

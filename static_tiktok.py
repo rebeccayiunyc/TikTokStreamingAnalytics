@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import to_date, concat_ws, year, month, dayofmonth, date_trunc, desc, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
-from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
+from pyspark.sql.functions import to_date, concat_ws, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
+from pyspark.sql.types import IntegerType
 from lib.logger import Log4j
 
 if __name__ == "__main__":
@@ -9,6 +9,8 @@ if __name__ == "__main__":
         .builder \
         .appName("TikTok Static Test") \
         .master("local[3]") \
+        .config('spark.driver.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
+        .config('spark.executor.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
         .getOrCreate()
 
     #logger = Log4j(spark)
@@ -41,7 +43,12 @@ if __name__ == "__main__":
         .withColumn("date", to_date(to_timestamp(from_unixtime(col("time_stamp").cast(IntegerType()), "yyyy-MM-dd HH:mm:ss"),
                                           "yyyy-MM-dd HH:mm:ss"))) \
         .withColumnRenamed("authorName", "musicianName")
+
     #Write codes to push to database
+    # filtered_df.write.format("jdbc").mode("append") \
+    # .option("url", "jdbc:postgresql://localhost/tiktok") \
+    # .option("dbtable", "tiktok_filtered") \
+    # .save()
 
     #create wordcount table, Read data from filtered_df database
     wordcount_df = filtered_df \
@@ -52,54 +59,34 @@ if __name__ == "__main__":
         .drop("ids")
 
     #Save to wordcount database
-    # wordcount_df \
-    #     .write \
-    #     .format("parquet") \
-    #     .mode("append") \
-    #     .save("./wordcount/")
+    wordcount_df.write.format("jdbc").mode("append") \
+    .option("url", "jdbc:postgresql://localhost/tiktok") \
+    .option("dbtable", "wordcount") \
+    .save()
 
-    #Challenge Table
-    challenge_df = filtered_df \
-        .groupBy(col("date"), col("challengeName")) \
-        .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
-        .orderBy(col("TotalEngagement").desc())
-
-    #Author Table
-    author_df = filtered_df \
-        .groupBy(col("date"), col("userId")) \
-        .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
-        .orderBy(col("TotalEngagement").desc())
-
-    #Music Table
-    music_df = filtered_df \
-        .groupBy(col("date"), col("musicId")) \
-        .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
-        .orderBy(col("TotalEngagement").desc())
-
-    #Musician Table
-    musician_df = filtered_df \
-        .groupBy(col("date"), col("musicianName")) \
-        .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
-        .orderBy(col("TotalEngagement").desc())
+    # #Challenge Table
+    # challenge_df = filtered_df \
+    #     .groupBy(col("date"), col("challengeName")) \
+    #     .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
+    #     .orderBy(col("TotalEngagement").desc())
+    #
+    # #Author Table
+    # author_df = filtered_df \
+    #     .groupBy(col("date"), col("userId")) \
+    #     .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
+    #     .orderBy(col("TotalEngagement").desc())
+    #
+    # #Music Table
+    # music_df = filtered_df \
+    #     .groupBy(col("date"), col("musicId")) \
+    #     .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
+    #     .orderBy(col("TotalEngagement").desc())
+    #
+    # #Musician Table
+    # musician_df = filtered_df \
+    #     .groupBy(col("date"), col("musicianName")) \
+    #     .agg(sum(col("engagementCount")).alias("TotalEngagement")) \
+    #     .orderBy(col("TotalEngagement").desc())
     #Write code to push all tables to database/redshift end of day
 
     ##---------------------- backup Content----------------------------------------
-    # #Parse out raw table
-    # filtered_df = json_df.selectExpr("authorInfos.uniqueId",
-    #                                   "authorInfos.userId",
-    #                                   "challengeInfoList.challengeId",
-    #                                   "challengeInfoList.challengeName",
-    #                                   "challengeInfoList.isCommerce",
-    #                                   "itemInfos.commentCount",
-    #                                   "itemInfos.createTime",
-    #                                   "itemInfos.diggCount",
-    #                                  "itemInfos.id",
-    #                                  "itemInfos.isActivityItem",
-    #                                  "itemInfos.shareCount",
-    #                                  "itemInfos.text",
-    #                                  "musicInfos.authorName",
-    #                                  "musicInfos.musicId",
-    #                                  "musicInfos.musicName") \
-    #                 .withColumn("engagementCount", expr("commentCount + diggCount + shareCount")) \
-    #                 .withColumnRenamed("authorName", "musicianName") \
-    #                 .show()

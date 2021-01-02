@@ -12,6 +12,8 @@ if __name__ == "__main__":
         .appName("TikTok Streaming Demo") \
         .master("local[3]") \
         .config("spark.streaming.stopGracefullyOnShutdown", "true") \
+        .config('spark.driver.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
+        .config('spark.executor.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
         .getOrCreate()
 
     # logger = Log4j(spark)
@@ -88,16 +90,15 @@ if __name__ == "__main__":
     json_parser_udf = udf(string_to_json, StringType())
     json_df = kafka_df.select(json_parser_udf(col("value").cast("string")).alias("value"))
     json_df = json_df.select(from_json(col("value"), schema).alias("value"))
-    #json_df.writeStream.foreachBatch(sink_streaming).outputMode("update").start()
+    # json_df.writeStream.foreachBatch(sink_streaming).outputMode("update").start()
 
-# ##--marker##
-#     # Save the aggregated data to S3
-#     # if len(groupedRDD.head(1)) != 0:
-#     #     groupedRDD.write \
-#     #         .format("com.databricks.spark.csv") \
-#     #         .mode("append") \
-#     #         .save("s3n://anshu-insight/aggregatedData_" + now_date + "/")
-#
+    # Save the aggregated data to S3
+    # if len(groupedRDD.head(1)) != 0:
+    #     groupedRDD.write \
+    #         .format("com.databricks.spark.csv") \
+    #         .mode("append") \
+    #         .save("s3n://anshu-insight/aggregatedData_" + now_date + "/")
+
     #create wordcount table
     wordcount_df = json_df.selectExpr("value.itemInfos.id",
                                      "value.itemInfos.text",
@@ -113,11 +114,13 @@ if __name__ == "__main__":
         .withColumn("month", month(col("window.end"))) \
         .withColumn("day", dayofmonth(col("window.end"))) \
         .drop("id", "text", "time_stamp")
-#
+
     #Load historic rolling statistic dataframe
     stats_df = spark.read \
-        .format("parquet") \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/wc_stats_df/*")
+        .format("jdbc") \
+        .option("url", "jdbc:postgresql://localhost/tiktok") \
+        .option("dbtable", "wc_stats") \
+        .load()
 
     recent_stats_window = Window.partitionBy("words").orderBy("date")
     last_stats_record = stats_df.withColumn("row_num", row_number().over(recent_stats_window)) \
@@ -132,7 +135,7 @@ if __name__ == "__main__":
                     .otherwise(0))
     writestream_console(joined_df, "update")
 
-    # #write codes to sink streaming wordcount to S3/Redshift?
+    #write codes to sink streaming wordcount to S3/Redshift?
     # joined_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
 
 
