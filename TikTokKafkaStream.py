@@ -90,7 +90,7 @@ if __name__ == "__main__":
     json_parser_udf = udf(string_to_json, StringType())
     json_df = kafka_df.select(json_parser_udf(col("value").cast("string")).alias("value"))
     json_df = json_df.select(from_json(col("value"), schema).alias("value"))
-    # json_df.writeStream.foreachBatch(sink_streaming).outputMode("update").start()
+    json_df.writeStream.foreachBatch(sink_streaming).outputMode("update").start()
 
     # Save the aggregated data to S3
     # if len(groupedRDD.head(1)) != 0:
@@ -133,10 +133,9 @@ if __name__ == "__main__":
         .fillna(0) \
         .withColumn("Outlier", when((col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions")) & (col("avg_mentions") >= 1), 1) \
                     .otherwise(0))
-    writestream_console(joined_df, "update")
 
     #write codes to sink streaming wordcount to S3/Redshift?
-    # joined_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
+    joined_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
 
 
     # #Final Query would look like this but allows users to subscribe to any one keyword value

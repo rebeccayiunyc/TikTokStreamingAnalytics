@@ -1,6 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import to_date, concat_ws, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
 from pyspark.sql.types import IntegerType
+import datetime
 from lib.logger import Log4j
 
 if __name__ == "__main__":
@@ -15,10 +16,14 @@ if __name__ == "__main__":
 
     #logger = Log4j(spark)
 
+    now = datetime.datetime.now().date()
+    #now_date = now.strftime("%Y-%m-%d")
+    yesterdate = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
     #Read raw streaming data from S3
     json_df = spark.read \
         .format("parquet") \
-        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/rawkafkajson/2020-12-31")
+        .load("/Users/beccaboo/Documents/GitHub/TikTok/Spark-kafka-stream/rawkafkajson/" + yesterdate)
 
     filtered_df = json_df \
         .selectExpr("value.authorInfos.uniqueId",
@@ -45,10 +50,10 @@ if __name__ == "__main__":
         .withColumnRenamed("authorName", "musicianName")
 
     #Write codes to push to database
-    # filtered_df.write.format("jdbc").mode("append") \
-    # .option("url", "jdbc:postgresql://localhost/tiktok") \
-    # .option("dbtable", "tiktok_filtered") \
-    # .save()
+    filtered_df.write.format("jdbc").mode("append") \
+    .option("url", "jdbc:postgresql://localhost/tiktok") \
+    .option("dbtable", "tiktok_filtered") \
+    .save()
 
     #create wordcount table, Read data from filtered_df database
     wordcount_df = filtered_df \
