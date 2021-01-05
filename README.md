@@ -1,5 +1,7 @@
-## Introduction
-### Project Overview
+## Project Overview
+This project presents a real-time anomaly detection system that monitors unusual activities on social media platform, TikTok. 
+### Introduction
+Brands in the modern world face
 ### Dataset
 
 ## Architecture
