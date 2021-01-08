@@ -6,7 +6,7 @@ Brands in modern world face challenges of timely community management and reputa
 This project presents a streaming pipeline system which ingests and processes Tiktok data in a real-time manner and detects abnormal activities of a given keyword. In addition, it also sinks streaming data to S3 and further stores them in ProgreSQL dabatases. Airflow then orchestrates tasks and runs daily batch analysis to gain insights on trending challenges, musicians, etc.
 
 ### Dataset
-The dataset is kindly provided by Jason@Pushift.io and is about 95GB, stored as .ndjson format. It has a nested structure with four main fields, `authorInfos`, `challengeInfoList`, `itemInfos`, and `musicInfos`. A fifth field, `time_stamp` will be added as Kafka producer sends the message to simulate a streaming situation. 
+The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndjson format. It has a nested structure with four main fields, `authorInfos`, `challengeInfoList`, `itemInfos`, and `musicInfos`. A fifth field, `time_stamp` will be added as Kafka producer sends the message to simulate a streaming situation. 
 
 ## Architecture
 ![Alt text](/tiktok_pipeline.png?raw=true "piepline structure")
