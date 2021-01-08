@@ -36,6 +36,7 @@ Kafka 2.6.0
 Spark 2.4.7
 Py4j 0.10.9.1
 Python3
+Airflow
 ```
 
 ### Next-steps
