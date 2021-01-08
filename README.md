@@ -8,6 +8,7 @@ This project presents a streaming pipeline system which ingests and processes Ti
 ### Dataset
 The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndjson format. It has a nested structure with four main fields, `authorInfos`, `challengeInfoList`, `itemInfos`, and `musicInfos`. A fifth field, `time_stamp` will be added as Kafka producer sends the message to simulate a streaming situation. 
 
+
 ## Architecture
 ![Alt text](/tiktok_pipeline.png?raw=true "piepline structure")
 ### Tools
@@ -18,8 +19,13 @@ The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndj
 5. AWS EC2
 6. Apache Airflow
 
-### Conversion
-### Transformation
+### Pipeline Flow
+1. `KafkaProducer.py` sends raw json messages to Kafka and adds a streaming timestamp to data
+2. `TikTokSparkStream.py` consumes Kafka content, sinks the streaming data to data lake in S3 for backup, and joins with historical statistics to detect outliers
+3. `static_tiktok.py` reads data from S3 and parses it into structured data which are then stored in a Postgres database, which can be further queried for ad-hoc analysis.
+4. `summarystats.py` reads data from Postgres database and generates historical statistics for outlier detection, and finally loads data to a Postgres table. 
+5. `tiktok_dag` schedules daily batch job with Airflow on bullets 3 and 4. 
+
 
 ## Result
 ### Engineering Challenge
