@@ -11,7 +11,7 @@ The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndj
 
 ## Architecture
 ![Alt text](/tiktok_pipeline.png?raw=true "piepline structure")
-### Tools
+### Toolkit
 1. Apache Kafka
 2. Apache Spark Spark & Spark Streaming
 3. S3
@@ -27,5 +27,10 @@ The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndj
 5. `tiktok_dag` schedules daily batch job with Airflow on bullets 3 and 4. 
 
 
-## Result
-### Engineering Challenge
+### Environment Setup 
+
+### Next-steps
+1. Refines text processing steps to clean out unhelpful content to save space for database 
+2. Add a GUI component 
+3. Improve outlier detection algorithm that factors in attributes such as seasonality and macro trends
+
