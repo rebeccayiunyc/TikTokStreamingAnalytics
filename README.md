@@ -29,10 +29,11 @@ The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndj
 
 ### Environment Setup 
 ```
-Kafka: 
-Spark:
-Py4j:
-Python: 
+Zookeeper
+Kafka: 2.6.0
+Spark: 2.4.7
+Py4j: 0.10.9.1
+Python: 3.8.3
 ```
 
 ### Next-steps
