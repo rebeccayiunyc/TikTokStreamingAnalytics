@@ -28,6 +28,12 @@ The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndj
 
 
 ### Environment Setup 
+```
+Kafka: 
+Spark:
+Py4j:
+Python: 
+```
 
 ### Next-steps
 1. Refines text processing steps to clean out unhelpful content to save space for database 
