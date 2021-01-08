@@ -12,11 +12,10 @@ if __name__ == "__main__":
         .config('spark.executor.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
         .getOrCreate()
 
-    #Write codes to schedule the following script at 00:00:00 on every new date
     window_length = 0.25
     stream_window_num = 24 / window_length
 
-    # Read data from wordcount database
+    # Read data from wordcount table
     raw_df = spark.read \
         .format("jdbc") \
         .option("url", "jdbc:postgresql://localhost/tiktok") \

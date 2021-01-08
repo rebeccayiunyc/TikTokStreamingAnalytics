@@ -4,8 +4,12 @@ from pyspark.sql.functions import row_number, max, year, month, dayofmonth, when
 from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
 from utils import subscribe_kafka_topic, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_word_count, sink_streaming
+import os
 
 if __name__ == "__main__":
+
+    AWS_KEY = os.environ['AWS_ACCESS_KEY_ID']
+    AWS_SECRET_KEY = os.environ['AWS_SECRET_ACCESS_KEY']
 
     spark = SparkSession \
         .builder \
@@ -14,9 +18,14 @@ if __name__ == "__main__":
         .config("spark.streaming.stopGracefullyOnShutdown", "true") \
         .config('spark.driver.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
         .config('spark.executor.extraClassPath', '/Users/beccaboo/postgresql-42.2.18.jar') \
+        .config("fs.s3a.access.key", AWS_KEY) \
+        .config("fs.s3a.secret.key", AWS_SECRET_KEY) \
         .getOrCreate()
 
-    # logger = Log4j(spark)
+#       .config('spark.executor.extraClassPath', '/Users/beccaboo/spark3/jars/aws-java-sdk-1.7.4.jar') \
+#       .config('spark.executor.extraClassPath', '/Users/beccaboo/spark3/jars/hadoop-aws-2.7.4.jar') \
+
+        #logger = Log4j(spark)
 
     now = datetime.datetime.now()
     now_date = now.strftime("%Y-%m-%d")
@@ -92,13 +101,6 @@ if __name__ == "__main__":
     json_df = json_df.select(from_json(col("value"), schema).alias("value"))
     json_df.writeStream.foreachBatch(sink_streaming).outputMode("update").start()
 
-    # Save the aggregated data to S3
-    # if len(groupedRDD.head(1)) != 0:
-    #     groupedRDD.write \
-    #         .format("com.databricks.spark.csv") \
-    #         .mode("append") \
-    #         .save("s3n://anshu-insight/aggregatedData_" + now_date + "/")
-
     #create wordcount table
     wordcount_df = json_df.selectExpr("value.itemInfos.id",
                                      "value.itemInfos.text",
@@ -127,16 +129,16 @@ if __name__ == "__main__":
             .filter(col("row_num") ==1) \
         .drop("row_num")
 
-    #Join WordCount stream and historic rolling Stats dfe.
+    #Join WordCount stream and historic rolling Stats df
     joined_df = wordcount_df.join(last_stats_record,
                                   (wordcount_df.words == stats_df.words), "leftOuter") \
         .fillna(0) \
         .withColumn("Outlier", when((col("TotalMentions") >= col("avg_mentions") + 2.5 * col("std_mentions")) & (col("avg_mentions") >= 1), 1) \
                     .otherwise(0))
 
-    #write codes to sink streaming wordcount to S3/Redshift?
+    #write codes to sink streaming wordcount to S3
     joined_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
-
+    print("wrote to S3 successfully")
 
     # #Final Query would look like this but allows users to subscribe to any one keyword value
     #Need to deal with cases where word is not found and returns the value of 0
