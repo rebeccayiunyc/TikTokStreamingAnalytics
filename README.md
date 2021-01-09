@@ -10,7 +10,7 @@ The dataset is kindly provided by pushshift.io and is about 95GB, stored as .ndj
 
 
 ## Architecture
-![Alt text](/tiktok_pipeline.png?raw=true "piepline structure")
+![Alt text](/image/tiktok_pipeline.png?raw=true "piepline structure")
 ### Toolkit
 1. Apache Kafka
 2. Apache Spark Spark & Spark Streaming
