@@ -1,9 +1,9 @@
 import datetime
 from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import row_number, max, year, month, dayofmonth, when, mean, stddev, from_json, col, expr, size, collect_list, udf, from_unixtime, window, to_timestamp, sum, array_distinct, explode
-from pyspark.sql.types import StructType, StructField, TimestampType, DateType, DecimalType,  StringType, ShortType, BinaryType, ByteType, MapType, FloatType, NullType, BooleanType, DoubleType, IntegerType, ArrayType, LongType
+from pyspark.sql.types import StructType, StructField, StringType, FloatType,  BooleanType, IntegerType, ArrayType, LongType
 from lib.logger import Log4j
-from utils import subscribe_kafka_topic, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_word_count, sink_streaming
+from utils import subscribe_kafka_topic, writestream_kafka, writestream_console, string_to_json, read_static_df, sink_outliers, sink_streaming
 import os
 
 if __name__ == "__main__":
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     ])
 
     #Read raw data from tiktok
-    kafka_df = subscribe_kafka_topic(spark, "tiktok", "earliest")
+    kafka_df = subscribe_kafka_topic(spark, "tiktok", "latest")
 
     # convert raw kafka message to a dataframe
     json_parser_udf = udf(string_to_json, StringType())
@@ -132,7 +132,7 @@ if __name__ == "__main__":
                     .otherwise(0))
 
     #write codes to sink streaming wordcount to S3
-    joined_df.writeStream.foreachBatch(sink_word_count).outputMode("update").start()
+    joined_df.writeStream.foreachBatch(sink_outliers).outputMode("update").start()
     print("wrote to S3 successfully")
 
     # #Final Query would look like this but allows users to subscribe to any one keyword value

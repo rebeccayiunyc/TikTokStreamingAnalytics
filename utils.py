@@ -61,7 +61,7 @@ def sink_streaming(df,epoch_id):
     .format("parquet") \
     .save("s3a://tiktokstreamingproject/rawkafka/" + now_date +"/")
 
-def sink_word_count(df,epoch_id):
+def sink_outliers(df,epoch_id):
     """
     Sinks wordcount and outlier results to an S3 bucket
     :param df: streaming dartaframe
@@ -73,7 +73,7 @@ def sink_word_count(df,epoch_id):
     df.write \
     .mode('append') \
     .format("parquet") \
-    .save('s3a://tiktokstreamingproject/wordcount/' + now_date +'/')
+    .save('s3a://tiktokstreamingproject/outliers/' + now_date +'/')
 
 def writestream_console(df, mode, trigger_time):
     """
