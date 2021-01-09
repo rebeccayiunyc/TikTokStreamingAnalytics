@@ -88,12 +88,7 @@ if __name__ == "__main__":
     ])
 
     #Read raw data from tiktok
-    kafka_df = spark.readStream \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", "localhost:9092") \
-        .option("subscribe", "tiktok") \
-        .option("startingOffsets", "earliest") \
-        .load()
+    kafka_df = subscribe_kafka_topic(spark, "tiktok", "earliest")
 
     # convert raw kafka message to a dataframe
     json_parser_udf = udf(string_to_json, StringType())
